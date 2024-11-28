@@ -14,12 +14,11 @@ tonic = 60
 
 function init()
   scale = major_scale(circle_of_fifths[7] + tonic)
-  tab.print(scale)
+  engine.release(3)
 end
 
 m.event = function(data)
   local msg = midi.to_msg(data)
-  print(msg.note)
   if (msg.type == 'note_on') then
     local chord = quant_chord(msg.note)
     for i = 1, 3 do
@@ -30,12 +29,25 @@ end
 
 function quant_chord(note)
   local closest_scale_degree = math.floor(util.linlin(0, 11, 0, 6, note % 12) + 0.5)
-  local octave_delta = (math.floor(note/12) * 12) - tonic
+
+  local octave_delta = (math.floor(note / 12) * 12) - tonic
+  local root = tonic +
+      (scale[closest_scale_degree + 1] + (math.floor(closest_scale_degree / 7) * 12) - tonic) + octave_delta
+
+  -- if the note isn't in the key, randomly choose between the next or previous note from the key
+  -- guitarists know: a bum note is always only one fret (semitone) away from a good note. Either way will work.
+  if note ~= root then
+    closest_scale_degree = math.floor(closest_scale_degree + 0.5 + (math.random() * -1))
+  end
+
   local nums = {}
+
   for i = 1, 3 do
-    nums[i] = tonic + (scale[(closest_scale_degree + (2 * (i - 1))) % 7 + 1] 
-                    + (math.floor((closest_scale_degree + (2 * (i - 1))) / 7) * 12) - tonic) 
-                    + octave_delta
+    nums[i] = tonic
+        +
+        (scale[(closest_scale_degree + (2 * (i - 1))) % 7 + 1] + (math.floor((closest_scale_degree + (2 * (i - 1))) / 7) * 12) - tonic)
+        +
+        octave_delta
   end
   return nums
 end
