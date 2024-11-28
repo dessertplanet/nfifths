@@ -6,46 +6,39 @@ engine.name = 'PolyPerc'
 music = require 'musicutil'
 m = midi.connect()
 
-scale = {}
+-- tonics on the circle of fifths starting from Gb all the way to F#,
+-- always choosing an octave with a note as close as possible to the key center (0)
+circle_of_fifths = { -6, 1, -4, 3, -2, 5, 0, -5, 2, -3, 4, -1, 6 }
+
 tonic = 60
 
 function init()
   scale = major_scale(circle_of_fifths[7] + tonic)
-end
-
---dummy function tied to current engine
-function note(num)
-  engine.hz(music.note_num_to_freq(num))
+  tab.print(scale)
 end
 
 m.event = function(data)
   local msg = midi.to_msg(data)
-  local scale_degree_approx = msg.note % 12 / 12 * 7 + 0.5
-  local relative = msg.note - tonic
-  
-
+  print(msg.note)
   if (msg.type == 'note_on') then
-    scale_degree_approx = math.floor(scale_degree_approx)
-    note(tonic + (scale[scale_degree_approx % 7 + 1] + (math.floor(scale_degree_approx / 7) * 12) - tonic))
-    note(tonic + (scale[(scale_degree_approx + 2) % 7 + 1] + (math.floor((scale_degree_approx + 2) / 7) * 12) - tonic))
-    note(tonic + (scale[(scale_degree_approx + 4) % 7 + 1] + (math.floor((scale_degree_approx + 4) / 7) * 12) - tonic))
+    local chord = quant_chord(msg.note)
+    for i = 1, 3 do
+      engine.hz(music.note_num_to_freq(chord[i]))
+    end
   end
 end
 
-
-
-
-
------ BELOW HERE FROM CROW VERSION
----
----
----
--- window boundaries for 13 equal-ish sized windows for -5 to +5V
-thirteen_windows = { -4.97, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 4.97 }
-
--- tonics on the circle of fifths starting from Gb all the way to F#,
--- always choosing an octave with a note as close as possible to the key center (0)
-circle_of_fifths = { -6, 1, -4, 3, -2, 5, 0, -5, 2, -3, 4, -1, 6 }
+function quant_chord(note)
+  local closest_scale_degree = math.floor(util.linlin(0, 11, 0, 6, note % 12) + 0.5)
+  local octave_delta = (math.floor(note/12) * 12) - tonic
+  local nums = {}
+  for i = 1, 3 do
+    nums[i] = tonic + (scale[(closest_scale_degree + (2 * (i - 1))) % 7 + 1] 
+                    + (math.floor((closest_scale_degree + (2 * (i - 1))) / 7) * 12) - tonic) 
+                    + octave_delta
+  end
+  return nums
+end
 
 --build a major scale for any root note (tonic)
 function major_scale(tonic)
@@ -64,7 +57,14 @@ function major_scale(tonic)
   return scale
 end
 
+----- BELOW HERE FROM CROW VERSION
+---
+---
+---
+
 --[[
+-- window boundaries for 13 equal-ish sized windows for -5 to +5V
+thirteen_windows = { -4.97, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 4.97 }
 -- choose output values based on input 1 and offsets based on fifths. 0V is assumed to be tuned to C3 (not mandatory!)
 input[1].scale = function(x)
   local fifth = 7 / 12
