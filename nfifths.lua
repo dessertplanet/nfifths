@@ -37,7 +37,7 @@ function quant_chord(note)
   -- if the note isn't in the key, randomly choose between the next or previous note from the key
   -- guitarists know: a bum note is always only one fret (semitone) away from a good note. Either way will work.
   if note ~= root then
-    closest_scale_degree = math.floor(closest_scale_degree + 0.5 + (math.random() * -1))
+    closest_scale_degree = math.floor(closest_scale_degree - (math.random() * (root - note)) + 0.5)
   end
 
   local nums = {}
