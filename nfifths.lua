@@ -11,10 +11,11 @@ m = midi.connect()
 circle_of_fifths = { -6, 1, -4, 3, -2, 5, 0, -5, 2, -3, 4, -1, 6 }
 
 tonic = 60
+key_index = 7
 
 function init()
-  scale = major_scale(circle_of_fifths[7] + tonic)
-  engine.release(3)
+  scale = major_scale(tonic)
+  engine.release(1)
 end
 
 m.event = function(data)
@@ -24,6 +25,9 @@ m.event = function(data)
     for i = 1, 3 do
       engine.hz(music.note_num_to_freq(chord[i]))
     end
+  end
+  if msg.type == 'note_off' then
+    engine.amp(0)
   end
 end
 
@@ -67,6 +71,23 @@ function major_scale(tonic)
     tonic + whole + whole + half + whole + whole + whole
   }
   return scale
+end
+
+function rotate_key(delta)
+  key_index = key_index + delta
+  if key_index < 1 then key_index = 13 end
+  if key_index > 13 then key_index = 1 end
+  scale = major_scale(circle_of_fifths[key_index] + tonic)
+end
+
+function key(n, z)
+  if z == 0 then
+    if n == 2 then
+      rotate_key(-1)
+    elseif n == 3 then
+      rotate_key(1)
+    end
+  end
 end
 
 ----- BELOW HERE FROM CROW VERSION
