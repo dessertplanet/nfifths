@@ -2,7 +2,7 @@
 -- fifths (from crow) on norns
 -- docs go here
 
-engine.name = 'PolyPerc'
+engine.name = 'MxSynths'
 music = require 'musicutil'
 midi_in = midi.connect(1)
 midi_out = midi.connect(2)
@@ -44,9 +44,19 @@ permutations = {
 tonic = 60
 key_index = 1
 
+slew = 0
+
 function init()
+  local mxsynths_=include("nfifths/lib/mx.synths")
+  mxsynths=mxsynths_:new({save=true,previous=true})
+
+  -- overwrite a couple mxsynths methods for chord purposes
+  function mxsynths:note_on(note,amp,duration) fifths_note_on(note,amp, duration) end
+  function mxsynths:note_off(note) fifths_note_off(note) end
+
+  mxsynths:setup_midi()
+
   scale = major_scale(tonic)
-  engine.release(1)
   screen.aa(0)
 
   --crow init steps
@@ -68,23 +78,43 @@ function init()
   redraw()
 end
 
-midi_in.event = function(data)
-  local msg = midi.to_msg(data)
-  if msg.type == 'note_on' then
-    local chord = quant_chord(msg.note)
-    for i = 1, 3 do
-      if permutations[voicing][i] then
-        engine.hz(music.note_num_to_freq(chord[i]))
-        midi_out:note_on(chord[i], msg.vel)
-      end
-    end
-  elseif msg.type == 'note_off' then
-    local chord = quant_chord(msg.note)
-    for i = 1, 3 do
-      midi_out:note_off(chord[i])
+-- midi_in.event = function(data)
+--   local msg = midi.to_msg(data)
+--   if msg.type == 'note_on' then
+--     local chord = quant_chord(msg.note)
+--     for i = 1, 3 do
+--       if permutations[voicing][i] then
+--         engine.mx_note_on(chord[i],msg.vel, nil)
+--         midi_out:note_on(chord[i], msg.vel)
+--       end
+--     end
+--   elseif msg.type == 'note_off' then
+--     local chord = quant_chord(msg.note)
+--     for i = 1, 3 do
+--       engine.mx_note_off(chord[i])
+--       midi_out:note_off(chord[i])
+--     end
+--   end
+-- end
+
+function fifths_note_on(note,amp,duration)
+  print("note on: ", note, " amp: ", amp, " duration: ",duration)
+  local chord = quant_chord(note)
+  for i = 1, 3 do
+    if permutations[voicing][i] then
+      engine.mx_note_on(chord[i],amp,duration)
+      midi_out:note_on(chord[i], amp,duration)
     end
   end
 end
+
+function fifths_note_off(note)
+  local chord = quant_chord(note)
+    for i = 1, 3 do
+      engine.mx_note_off(chord[i])
+      midi_out:note_off(chord[i])
+    end
+end 
 
 function redraw()
   screen.clear()
@@ -97,14 +127,14 @@ end
 
 function draw_slew()
   screen.move(85,53)
-  screen.text("slew: 30%")
+  screen.text("slew: " .. slew .. "%")
 end
 
 function draw_env()
-  screen.move(85,38)
-  screen.line(85,28)
-  screen.line(95,28)
-  screen.line(95,38)
+  screen.move(87,38)
+  screen.line(87,28)
+  screen.line(97,28)
+  screen.line(97,38)
   screen.stroke()
 end
 
@@ -155,8 +185,8 @@ function draw_fifths()
 end
 
 function quant_chord(note)
+  
   local closest_scale_degree = math.floor(util.linlin(0, 11, 0, 6, note % 12) + 0.5)
-
   local octave_delta = (math.floor(note / 12) * 12) - tonic
   local root = tonic +
       (scale[closest_scale_degree + 1] + (math.floor(closest_scale_degree / 7) * 12) - tonic) + octave_delta
@@ -217,12 +247,12 @@ function enc(n, d)
     elseif voicing < 1 then
       voicing = 7
     end
-    redraw()
   elseif n == 2 then
 
   elseif n == 3 then
-
+    slew = util.clamp(slew + d, 0, 100)
   end
+  redraw()
 end
 
 -- choose output values based on input 1 and offsets based on fifths. 0V is assumed to be tuned to C3 (not mandatory!)
