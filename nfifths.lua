@@ -3,7 +3,6 @@
 -- docs go here
 
 engine.name = 'MxSynths'
-music = require 'musicutil'
 midi_in = midi.connect(1)
 midi_out = midi.connect(2)
 
@@ -44,15 +43,22 @@ permutations = {
 tonic = 60
 key_index = 1
 
+keys_that_are_down = {}
+
 slew = 0
 
 function init()
-  local mxsynths_=include("nfifths/lib/mx.synths")
-  mxsynths=mxsynths_:new({save=true,previous=true})
+  local mxsynths_ = include("mx.synths/lib/mx.synths")
+  mxsynths = mxsynths_:new({ save = true, previous = true })
 
   -- overwrite a couple mxsynths methods for chord purposes
-  function mxsynths:note_on(note,amp,duration) fifths_note_on(note,amp, duration) end
+  function mxsynths:note_on(note, amp, duration) fifths_process_note(note, amp, duration) end
+
   function mxsynths:note_off(note) fifths_note_off(note) end
+
+  function mxsynths.arp.note_on(note) fifths_note_on(note, 0.5, 2) end
+
+  function mxsynths.arp.note_off(note) fifths_note_off(note) end
 
   mxsynths:setup_midi()
 
@@ -78,64 +84,79 @@ function init()
   redraw()
 end
 
--- midi_in.event = function(data)
---   local msg = midi.to_msg(data)
---   if msg.type == 'note_on' then
---     local chord = quant_chord(msg.note)
---     for i = 1, 3 do
---       if permutations[voicing][i] then
---         engine.mx_note_on(chord[i],msg.vel, nil)
---         midi_out:note_on(chord[i], msg.vel)
---       end
---     end
---   elseif msg.type == 'note_off' then
---     local chord = quant_chord(msg.note)
---     for i = 1, 3 do
---       engine.mx_note_off(chord[i])
---       midi_out:note_off(chord[i])
---     end
---   end
--- end
+function fifths_process_note(note, amp, duration)
+  -- print("note on: ", note, " amp: ", amp, " duration: ",duration)
 
-function fifths_note_on(note,amp,duration)
-  print("note on: ", note, " amp: ", amp, " duration: ",duration)
+  if params:get("arp_start") == 1 then
+    local do_restart = mxsynths.arp.seq == nil
+    mxsynths.arp:add(note)
+    if params:get("arp_hold") == 0 and params:get("chordy_start") == 0 and do_restart then
+      mxsynths.lattice:hard_restart()
+      mxsynths.arp:start()
+    end
+  else
+    fifths_note_on(note, amp, duration)
+  end
+end
+
+function fifths_note_on(note, amp, duration)
   local chord = quant_chord(note)
+  local meta = {}
+  meta.note = note
+  meta.amp = amp
+  meta.duration = duration
+  table.insert(keys_that_are_down, meta)
   for i = 1, 3 do
     if permutations[voicing][i] then
-      engine.mx_note_on(chord[i],amp,duration)
-      midi_out:note_on(chord[i], amp,duration)
+      engine.mx_note_on(chord[i], amp, duration)
+      midi_out:note_on(chord[i], amp, duration)
     end
   end
+  -- tab.print(note_that_are_on)
 end
 
 function fifths_note_off(note)
   local chord = quant_chord(note)
-    for i = 1, 3 do
+  table.remove(keys_that_are_down, k)
+
+  if params:get("arp_start") == 1 then
+    mxsynths.arp:remove(note)
+  end
+
+  for i = 1, 3 do
+    if permutations[voicing][i] then
       engine.mx_note_off(chord[i])
       midi_out:note_off(chord[i])
     end
-end 
+  end
+  -- tab.print(note_that_are_on)
+end
 
 function redraw()
   screen.clear()
   draw_fifths()
   draw_dots(permutations[voicing])
-  draw_env()
+  draw_synth()
   draw_slew()
   screen.update()
 end
 
 function draw_slew()
-  screen.move(85,53)
+  screen.move(85, 53)
   screen.text("slew: " .. slew .. "%")
 end
 
-function draw_env()
-  screen.move(87,38)
-  screen.line(87,28)
-  screen.line(97,28)
-  screen.line(97,38)
-  screen.stroke()
+-- function draw_env()
+--   screen.move(87,38)
+--   screen.line(87,28)
+--   screen.line(97,28)
+--   screen.line(97,38)
+--   screen.stroke()
+-- end
+
+function draw_synth()
+  screen.move(85, 34)
+  screen.text(mxsynths:current_synth())
 end
 
 function draw_dots(states)
@@ -177,15 +198,14 @@ function draw_fifths()
     end
 
     if i == key_index then
-      screen.move(x + 1+ small_radius, y-2)
-      screen.circle(x+1, y - 2, small_radius)
+      screen.move(x + 1 + small_radius, y - 2)
+      screen.circle(x + 1, y - 2, small_radius)
       screen.stroke()
     end
   end
 end
 
 function quant_chord(note)
-  
   local closest_scale_degree = math.floor(util.linlin(0, 11, 0, 6, note % 12) + 0.5)
   local octave_delta = (math.floor(note / 12) * 12) - tonic
   local root = tonic +
@@ -221,18 +241,51 @@ function major_scale(tonic)
 end
 
 function rotate_key(delta)
+  -- engine.mx_set('gate', 0)
+  local chord = {}
+  local notes = {}
+
+  for k, v in ipairs(keys_that_are_down) do
+    chord = quant_chord(v.note)
+    notes[v.note] = v
+    notes[v.note].old = chord
+    notes[v.note].new = chord
+  end
+
   key_index = key_index + delta
+
   if key_index < 1 then key_index = 13 end
   if key_index > 13 then key_index = 1 end
+
   scale = major_scale(circle_of_fifths[key_index] + tonic)
+
+  for k, v in ipairs(keys_that_are_down) do
+    chord = quant_chord(v.note)
+    notes[v.note].new = chord
+  end
+
+  for k, v in pairs(notes) do
+    for i = 1, 3 do
+      if v.old[i] ~= v.new[i] then
+        engine.mx_note_off(v.old[i])
+        midi_out:note_off(v.old[i])
+        engine.mx_note_on(v.new[i], v.amp, v.duration)
+        midi_out:note_on(v.new[i], v.amp * 127)
+      end
+    end
+  end
 end
 
 function key(n, z)
   if z == 0 then
     if n == 2 then
-      rotate_key(-1)
+      -- rotate_key(-1)
     elseif n == 3 then
-      rotate_key(1)
+      if params:get('mxsynths_synth') > 11 then
+        params:set('mxsynths_synth', 1)
+      else
+        params:delta('mxsynths_synth', 1)
+      end
     end
     redraw()
   end
@@ -241,16 +294,11 @@ end
 function enc(n, d)
   --print("n = ",n,"d = ",d)
   if n == 1 then
-    voicing = voicing + d
-    if voicing > 7 then
-      voicing = 1
-    elseif voicing < 1 then
-      voicing = 7
-    end
-  elseif n == 2 then
 
+  elseif n == 2 then
+    voicing = util.clamp(voicing + d, 1, 7)
   elseif n == 3 then
-    slew = util.clamp(slew + d, 0, 100)
+    rotate_key(d)
   end
   redraw()
 end
@@ -270,3 +318,18 @@ crow.input[2].window = function(x)
   local new_key = major_scale(circle_of_fifths[x])
   crow.input[1].mode('scale', new_key)
 end
+
+-- function update_chord(source, dest)
+--   local new = {}
+--   for i = 1, 3 do
+--     if source[i] ~= dest[i] then
+--       new[i] = nil
+--       engine.mx_note_off(source[i])
+--       midi_out:note_off(source[i])
+--     else
+--       new[i] = source[i]
+--     end
+--   end
+--   tab.print(new)
+--   return new
+-- end
