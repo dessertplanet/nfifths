@@ -43,13 +43,13 @@ permutations = {
 tonic = 60
 key_index = 1
 
-keys_that_are_down = {}
+all_notes = {}
 
 slew = 0
 
 function init()
   local mxsynths_ = include("mx.synths/lib/mx.synths")
-  mxsynths = mxsynths_:new({ save = true, previous = true })
+  mxsynths = mxsynths_:new({ save = false, previous = false })
 
   -- overwrite a couple mxsynths methods for chord purposes
   function mxsynths:note_on(note, amp, duration) fifths_process_note(note, amp, duration) end
@@ -64,6 +64,8 @@ function init()
 
   scale = major_scale(tonic)
   screen.aa(0)
+
+  params:set('mxsynths_synth', 6)
 
   --crow init steps
   --input 2 produces value 1 at -5V and value 12 at +5V
@@ -101,15 +103,14 @@ end
 
 function fifths_note_on(note, amp, duration)
   local chord = quant_chord(note)
-  local meta = {}
-  meta.note = note
-  meta.amp = amp
-  meta.duration = duration
-  table.insert(keys_that_are_down, meta)
+  -- local meta = {}
+  -- meta.chord = chord
+  -- meta.amp = amp
+  -- meta.duration = duration
   for i = 1, 3 do
     if permutations[voicing][i] then
-      engine.mx_note_on(chord[i], amp, duration)
-      midi_out:note_on(chord[i], amp, duration)
+      engine.mx_note_on(chord[i] - circle_of_fifths[key_index], amp, duration)
+      midi_out:note_on(chord[i] - circle_of_fifths[key_index], amp, duration)
     end
   end
   -- tab.print(note_that_are_on)
@@ -117,7 +118,6 @@ end
 
 function fifths_note_off(note)
   local chord = quant_chord(note)
-  table.remove(keys_that_are_down, k)
 
   if params:get("arp_start") == 1 then
     mxsynths.arp:remove(note)
@@ -125,11 +125,111 @@ function fifths_note_off(note)
 
   for i = 1, 3 do
     if permutations[voicing][i] then
-      engine.mx_note_off(chord[i])
-      midi_out:note_off(chord[i])
+      engine.mx_note_off(chord[i] - circle_of_fifths[key_index])
+      midi_out:note_off(chord[i] - circle_of_fifths[key_index])
     end
   end
   -- tab.print(note_that_are_on)
+end
+
+
+
+function quant_chord(note)
+  local closest_scale_degree = math.floor(util.linlin(0, 11, 0, 6, note % 12) + 0.5)
+  local octave_delta = (math.floor(note / 12) * 12) - tonic
+  local root = tonic +
+      (scale[closest_scale_degree + 1] + (math.floor(closest_scale_degree / 7) * 12) - tonic) + octave_delta
+
+  local nums = {}
+
+  for i = 1, 3 do
+    nums[i] = tonic
+        +
+        (scale[(closest_scale_degree + (2 * (i - 1))) % 7 + 1] + (math.floor((closest_scale_degree + (2 * (i - 1))) / 7) * 12) - tonic)
+        +
+        octave_delta
+  end
+  return nums
+end
+
+--build a major scale for any root note (tonic)
+function major_scale(tonic)
+  local scale = {}
+  local whole = 2
+  local half = 1
+  scale = {
+    tonic,
+    tonic + whole,
+    tonic + whole + whole,
+    tonic + whole + whole + half,
+    tonic + whole + whole + half + whole,
+    tonic + whole + whole + half + whole + whole,
+    tonic + whole + whole + half + whole + whole + whole
+  }
+  return scale
+end
+
+function rotate_key(delta)
+  -- engine.mx_set('gate', 0)
+  local chord = {}
+  local notes = {}
+
+  -- for k, v in ipairs(all_notes) do
+  --   chord = quant_chord(v.note)
+  --   notes[v.note] = v
+  --   notes[v.note].old = chord
+  --   notes[v.note].new = chord
+  -- end
+
+  key_index = key_index + delta
+
+  if key_index < 1 then key_index = 13 end
+  if key_index > 13 then key_index = 1 end
+
+  scale = major_scale(circle_of_fifths[key_index] + tonic)
+
+  -- for k, v in ipairs(all_notes) do
+  --   chord = quant_chord(v.note)
+  --   notes[v.note].new = chord
+  -- end
+
+  -- for k, v in pairs(notes) do
+  --   for i = 1, 3 do
+  --     if v.old[i] ~= v.new[i] then
+  --       engine.mx_note_off(v.old[i])
+  --       midi_out:note_off(v.old[i])
+  --       engine.mx_note_on(v.new[i], v.amp, v.duration)
+  --       midi_out:note_on(v.new[i], v.amp * 127)
+  --     end
+  --   end
+  -- end
+end
+
+function key(n, z)
+  if z == 0 then
+    if n == 2 then
+      -- rotate_key(-1)
+    elseif n == 3 then
+      if params:get('mxsynths_synth') > 11 then
+        params:set('mxsynths_synth', 1)
+      else
+        params:delta('mxsynths_synth', 1)
+      end
+    end
+    redraw()
+  end
+end
+
+function enc(n, d)
+  --print("n = ",n,"d = ",d)
+  if n == 1 then
+
+  elseif n == 2 then
+    voicing = util.clamp(voicing + d, 1, 7)
+  elseif n == 3 then
+    rotate_key(d)
+  end
+  redraw()
 end
 
 function redraw()
@@ -203,104 +303,6 @@ function draw_fifths()
       screen.stroke()
     end
   end
-end
-
-function quant_chord(note)
-  local closest_scale_degree = math.floor(util.linlin(0, 11, 0, 6, note % 12) + 0.5)
-  local octave_delta = (math.floor(note / 12) * 12) - tonic
-  local root = tonic +
-      (scale[closest_scale_degree + 1] + (math.floor(closest_scale_degree / 7) * 12) - tonic) + octave_delta
-
-  local nums = {}
-
-  for i = 1, 3 do
-    nums[i] = tonic
-        +
-        (scale[(closest_scale_degree + (2 * (i - 1))) % 7 + 1] + (math.floor((closest_scale_degree + (2 * (i - 1))) / 7) * 12) - tonic)
-        +
-        octave_delta
-  end
-  return nums
-end
-
---build a major scale for any root note (tonic)
-function major_scale(tonic)
-  local scale = {}
-  local whole = 2
-  local half = 1
-  scale = {
-    tonic,
-    tonic + whole,
-    tonic + whole + whole,
-    tonic + whole + whole + half,
-    tonic + whole + whole + half + whole,
-    tonic + whole + whole + half + whole + whole,
-    tonic + whole + whole + half + whole + whole + whole
-  }
-  return scale
-end
-
-function rotate_key(delta)
-  -- engine.mx_set('gate', 0)
-  local chord = {}
-  local notes = {}
-
-  for k, v in ipairs(keys_that_are_down) do
-    chord = quant_chord(v.note)
-    notes[v.note] = v
-    notes[v.note].old = chord
-    notes[v.note].new = chord
-  end
-
-  key_index = key_index + delta
-
-  if key_index < 1 then key_index = 13 end
-  if key_index > 13 then key_index = 1 end
-
-  scale = major_scale(circle_of_fifths[key_index] + tonic)
-
-  for k, v in ipairs(keys_that_are_down) do
-    chord = quant_chord(v.note)
-    notes[v.note].new = chord
-  end
-
-  for k, v in pairs(notes) do
-    for i = 1, 3 do
-      if v.old[i] ~= v.new[i] then
-        engine.mx_note_off(v.old[i])
-        midi_out:note_off(v.old[i])
-        engine.mx_note_on(v.new[i], v.amp, v.duration)
-        midi_out:note_on(v.new[i], v.amp * 127)
-      end
-    end
-  end
-end
-
-function key(n, z)
-  if z == 0 then
-    if n == 2 then
-      -- rotate_key(-1)
-    elseif n == 3 then
-      if params:get('mxsynths_synth') > 11 then
-        params:set('mxsynths_synth', 1)
-      else
-        params:delta('mxsynths_synth', 1)
-      end
-    end
-    redraw()
-  end
-end
-
-function enc(n, d)
-  --print("n = ",n,"d = ",d)
-  if n == 1 then
-
-  elseif n == 2 then
-    voicing = util.clamp(voicing + d, 1, 7)
-  elseif n == 3 then
-    rotate_key(d)
-  end
-  redraw()
 end
 
 -- choose output values based on input 1 and offsets based on fifths. 0V is assumed to be tuned to C3 (not mandatory!)
