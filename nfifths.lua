@@ -49,16 +49,16 @@ slew = 0
 
 function init()
   local mxsynths_ = include("mx.synths/lib/mx.synths")
-  mxsynths = mxsynths_:new({ save = false, previous = false })
+  mxsynths = mxsynths_:new({ save = true, previous = true })
 
   -- overwrite a couple mxsynths methods for chord purposes
-  function mxsynths:note_on(note, amp, duration) fifths_process_note(note, amp, duration) end
+  function mxsynths:note_on(note, amp, duration) fifths_note_on(note, amp, duration) end
 
   function mxsynths:note_off(note) fifths_note_off(note) end
 
-  function mxsynths.arp.note_on(note) fifths_process_note(note, 0.5, 2) end
+  function mxsynths.arp.note_on(note) fifths_arp_note_on(note, 0.5, 2) end
 
-  function mxsynths.arp.note_off(note) fifths_note_off(note) end
+  function mxsynths.arp.note_off(note) fifths_arp_note_off(note) end
 
   mxsynths:setup_midi()
 
@@ -86,7 +86,7 @@ function init()
   redraw()
 end
 
-function fifths_process_note(note, amp, duration)
+function fifths_note_on(note, amp, duration)
   -- print("note on: ", note, " amp: ", amp, " duration: ",duration)
 
   local chord = quant_chord(note)
@@ -119,21 +119,59 @@ function fifths_process_note(note, amp, duration)
 end
 
 function fifths_note_off(note)
-  local chord = quant_chord(note)
+
+  -- print("note off: " .. note)
+
+  local note_data = all_notes[note]
 
   for i = 1, 3 do
-    if permutations[all_notes[note].voicing][i] then
+    if permutations[note_data.voicing][i] then
       if params:get("arp_start") == 1 then
-        mxsynths.arp:remove(all_notes[note].chord[i])
+        mxsynths.arp:remove(note_data.chord[i])
       end
-      engine.mx_note_off(all_notes[note].chord[i])
-      midi_out:note_off(all_notes[note].chord[i])
+      engine.mx_note_off(note_data.chord[i])
+      midi_out:note_off(note_data.chord[i])
     end
   end
 
   all_notes[note] = nil
   -- tab.print(note_that_are_on)
 end
+
+function fifths_arp_note_on(note)
+  local chord = quant_chord(note)
+  all_notes[note] = {
+    chord = chord,
+    voicing = voicing
+  }
+
+  for i = 1, 3 do
+    if permutations[voicing][i] then
+      engine.mx_note_on(chord[i], 0.5, 2)
+      midi_out:note_on(chord[i], 0.5, 2)
+    end
+  end
+end
+
+function fifths_arp_note_off(note)
+  local chord = quant_chord(note)
+  all_notes[note] = {
+    chord = chord,
+    voicing = voicing
+  }
+
+  local note_data = all_notes[note]
+
+  for i = 1, 3 do
+    if permutations[note_data.voicing][i] then
+      engine.mx_note_off(note_data.chord[i])
+      midi_out:note_off(note_data.chord[i])
+    end
+  end
+
+  all_notes[note] = nil
+end
+
 
 function quant_chord(note)
   local closest_scale_degree = math.floor(util.linlin(0, 11, 0, 6, note % 12) + 0.5)
@@ -171,39 +209,12 @@ function major_scale(tonic)
 end
 
 function rotate_key(delta)
-  -- engine.mx_set('gate', 0)
-  local chord = {}
-  local notes = {}
-
-  -- for k, v in ipairs(all_notes) do
-  --   chord = quant_chord(v.note)
-  --   notes[v.note] = v
-  --   notes[v.note].old = chord
-  --   notes[v.note].new = chord
-  -- end
-
   key_index = key_index + delta
 
   if key_index < 1 then key_index = 13 end
   if key_index > 13 then key_index = 1 end
 
   scale = major_scale(circle_of_fifths[key_index] + tonic)
-
-  -- for k, v in ipairs(all_notes) do
-  --   chord = quant_chord(v.note)
-  --   notes[v.note].new = chord
-  -- end
-
-  -- for k, v in pairs(notes) do
-  --   for i = 1, 3 do
-  --     if v.old[i] ~= v.new[i] then
-  --       engine.mx_note_off(v.old[i])
-  --       midi_out:note_off(v.old[i])
-  --       engine.mx_note_on(v.new[i], v.amp, v.duration)
-  --       midi_out:note_on(v.new[i], v.amp * 127)
-  --     end
-  --   end
-  -- end
 end
 
 function key(n, z)
@@ -224,9 +235,9 @@ end
 function enc(n, d)
   --print("n = ",n,"d = ",d)
   if n == 1 then
-
-  elseif n == 2 then
     voicing = util.clamp(voicing + d, 1, 7)
+  elseif n == 2 then
+
   elseif n == 3 then
     rotate_key(d)
   end
