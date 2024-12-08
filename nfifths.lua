@@ -56,7 +56,7 @@ function init()
 
   function mxsynths:note_off(note) fifths_note_off(note) end
 
-  function mxsynths.arp.note_on(note) fifths_note_on(note, 0.5, 2) end
+  function mxsynths.arp.note_on(note) fifths_process_note(note, 0.5, 2) end
 
   function mxsynths.arp.note_off(note) fifths_note_off(note) end
 
@@ -89,50 +89,51 @@ end
 function fifths_process_note(note, amp, duration)
   -- print("note on: ", note, " amp: ", amp, " duration: ",duration)
 
+  local chord = quant_chord(note)
+
+  all_notes[note] = {
+    chord = chord,
+    voicing = voicing
+  }
+
   if params:get("arp_start") == 1 then
     local do_restart = mxsynths.arp.seq == nil
-    mxsynths.arp:add(note)
+    for i = 1, 3 do
+      if permutations[voicing][i] then
+        mxsynths.arp:add(chord[i])
+      end
+    end
+
     if params:get("arp_hold") == 0 and params:get("chordy_start") == 0 and do_restart then
       mxsynths.lattice:hard_restart()
       mxsynths.arp:start()
     end
   else
-    fifths_note_on(note, amp, duration)
-  end
-end
-
-function fifths_note_on(note, amp, duration)
-  local chord = quant_chord(note)
-  -- local meta = {}
-  -- meta.chord = chord
-  -- meta.amp = amp
-  -- meta.duration = duration
-  for i = 1, 3 do
-    if permutations[voicing][i] then
-      engine.mx_note_on(chord[i] - circle_of_fifths[key_index], amp, duration)
-      midi_out:note_on(chord[i] - circle_of_fifths[key_index], amp, duration)
+    for i = 1, 3 do
+      if permutations[voicing][i] then
+        engine.mx_note_on(chord[i], amp, duration)
+        midi_out:note_on(chord[i], amp, duration)
+      end
     end
   end
-  -- tab.print(note_that_are_on)
 end
 
 function fifths_note_off(note)
   local chord = quant_chord(note)
 
-  if params:get("arp_start") == 1 then
-    mxsynths.arp:remove(note)
-  end
-
   for i = 1, 3 do
-    if permutations[voicing][i] then
-      engine.mx_note_off(chord[i] - circle_of_fifths[key_index])
-      midi_out:note_off(chord[i] - circle_of_fifths[key_index])
+    if permutations[all_notes[note].voicing][i] then
+      if params:get("arp_start") == 1 then
+        mxsynths.arp:remove(all_notes[note].chord[i])
+      end
+      engine.mx_note_off(all_notes[note].chord[i])
+      midi_out:note_off(all_notes[note].chord[i])
     end
   end
+
+  all_notes[note] = nil
   -- tab.print(note_that_are_on)
 end
-
-
 
 function quant_chord(note)
   local closest_scale_degree = math.floor(util.linlin(0, 11, 0, 6, note % 12) + 0.5)
